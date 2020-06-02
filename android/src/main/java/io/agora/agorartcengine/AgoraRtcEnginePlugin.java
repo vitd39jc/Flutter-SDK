@@ -1,8 +1,13 @@
 package io.agora.agorartcengine;
 
+import android.app.Activity;
+import android.content.ComponentName;
 import android.content.Context;
+import android.content.Intent;
+import android.content.ServiceConnection;
 import android.graphics.Rect;
 import android.os.Handler;
+import android.os.IBinder;
 import android.os.Looper;
 import android.view.SurfaceView;
 
@@ -32,16 +37,26 @@ import io.flutter.plugin.common.MethodChannel.Result;
 import io.flutter.plugin.common.PluginRegistry.Registrar;
 import io.flutter.plugin.common.StandardMessageCodec;
 
+import static android.content.Context.BIND_AUTO_CREATE;
+
 /**
  * AgoraRtcEnginePlugin
  */
 public class AgoraRtcEnginePlugin implements MethodCallHandler, EventChannel.StreamHandler {
 
-    private final Registrar mRegistrar;
+    public static RtcEngine getRtcEngine() {
+        return mRtcEngine;
+    }
+
     private static RtcEngine mRtcEngine;
+
+    private final Registrar mRegistrar;
     private HashMap<String, SurfaceView> mRendererViews;
     private Handler mEventHandler = new Handler(Looper.getMainLooper());
     private EventChannel.EventSink sink;
+    private boolean isRecognizeEnable;
+    private Activity mActivity;
+    private String mSpeechApiKey;
 
     void addView(SurfaceView view, int id) {
         mRendererViews.put("" + id, view);
@@ -55,9 +70,77 @@ public class AgoraRtcEnginePlugin implements MethodCallHandler, EventChannel.Str
         return mRendererViews.get("" + id);
     }
 
-    public static RtcEngine getRtcEngine() {
-        return mRtcEngine;
-    }
+    private SpeechService mSpeechService;
+    private CustomRecorderService mRecorderService;
+
+    private final CustomRecorderService.Callback mVoiceCallback = new CustomRecorderService.Callback() {
+
+        @Override
+        public void onVoiceStart(int sampleRate) {
+            if (mSpeechService != null) {
+                mSpeechService.startRecognizing(sampleRate);
+            }
+        }
+
+        @Override
+        public void onVoice(byte[] data, int size) {
+            if (mSpeechService != null && isRecognizeEnable) {
+                mSpeechService.recognize(data, size);
+            }
+        }
+
+        @Override
+        public void onVoiceEnd() {
+            if (mSpeechService != null) {
+                mSpeechService.finishRecognizing();
+            }
+        }
+
+    };
+
+    private final ServiceConnection mSpeechServiceConnection = new ServiceConnection() {
+
+        @Override
+        public void onServiceConnected(ComponentName componentName, IBinder binder) {
+            mSpeechService = SpeechService.from(binder);
+            mSpeechService.addListener(mSpeechServiceListener);
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName componentName) {
+            mSpeechService.removeListener(mSpeechServiceListener);
+            mSpeechService = null;
+        }
+
+    };
+
+    private final ServiceConnection mAudioRecorderServiceConnection = new ServiceConnection() {
+
+        @Override
+        public void onServiceConnected(ComponentName componentName, IBinder binder) {
+            mRecorderService = CustomRecorderService.from(binder);
+            mRecorderService.setVoiceCallback(mVoiceCallback);
+        }
+
+        @Override
+        public void onServiceDisconnected(ComponentName componentName) {
+            mRecorderService.removeVoiceCallback();
+            mRecorderService = null;
+        }
+
+    };
+
+    private final SpeechService.Listener mSpeechServiceListener = new SpeechService.Listener() {
+        @Override
+        public void onSpeechRecognized(final String text, final boolean isFinal) {
+            if (isFinal) {
+                mRecorderService.dismiss();
+                HashMap<String, Object> map = new HashMap<>();
+                map.put("text", text);
+                sendEvent("onSpeechRecognized", map);
+            }
+        }
+    };
 
     /**
      * Plugin registration.
@@ -78,6 +161,7 @@ public class AgoraRtcEnginePlugin implements MethodCallHandler, EventChannel.Str
 
     private AgoraRtcEnginePlugin(Registrar registrar) {
         this.mRegistrar = registrar;
+        this.mActivity = registrar.activity();
         this.sink = null;
         this.mRendererViews = new HashMap<>();
     }
@@ -106,6 +190,7 @@ public class AgoraRtcEnginePlugin implements MethodCallHandler, EventChannel.Str
                 try {
                     String appId = call.argument("appId");
                     mRtcEngine = RtcEngine.create(context, appId, mRtcEventHandler);
+                    enableExternalAudioSource();
                     result.success(null);
                 } catch (Exception e) {
                     throw new RuntimeException("NEED TO check rtc sdk init fatal error\n");
@@ -130,6 +215,7 @@ public class AgoraRtcEnginePlugin implements MethodCallHandler, EventChannel.Str
             }
             break;
             case "joinChannel": {
+                enableExternalAudioSource();
                 String token = call.argument("token");
                 String channel = call.argument("channelId");
                 String info = call.argument("info");
@@ -138,6 +224,7 @@ public class AgoraRtcEnginePlugin implements MethodCallHandler, EventChannel.Str
             }
             break;
             case "leaveChannel": {
+                unbindService();
                 result.success(mRtcEngine.leaveChannel() >= 0);
             }
             break;
@@ -1072,9 +1159,53 @@ public class AgoraRtcEnginePlugin implements MethodCallHandler, EventChannel.Str
             }
             break;
 
+            case "startSpeechRecognize": {
+                isRecognizeEnable = true;
+                result.success(true);
+            }
+            break;
+
+            case "stopSpeechRecognize": {
+                isRecognizeEnable = false;
+                if (mSpeechService != null) {
+                    mSpeechService.finishRecognizing();
+                }
+                result.success(true);
+            }
+            break;
+
+            case "setSpeechApiKey": {
+                mSpeechApiKey = call.argument("apiKey");
+                result.success(true);
+            }
+            break;
+
             default:
                 result.notImplemented();
         }
+    }
+
+    private void enableExternalAudioSource() {
+        CustomRecorderConfig config = CustomRecorderConfig.getDefaultConfig();
+        mRtcEngine.setExternalAudioSource(true,
+                config.getSampleRate(),
+                config.getChannelCount());
+    }
+
+    private void bindService() {
+        Intent customRecorderIntent = new Intent(mActivity, CustomRecorderService.class);
+        mActivity.bindService(customRecorderIntent, mAudioRecorderServiceConnection, BIND_AUTO_CREATE);
+        Intent speechIntent = new Intent(mActivity, SpeechService.class);
+        speechIntent.putExtra(Constants.SPEECH_API_KEY_EXTRA, mSpeechApiKey);
+        mActivity.bindService(speechIntent, mSpeechServiceConnection, BIND_AUTO_CREATE);
+    }
+
+    private void unbindService() {
+        if (mSpeechService != null) {
+            mSpeechService.finishRecognizing();
+        }
+        mActivity.unbindService(mAudioRecorderServiceConnection);
+        mActivity.unbindService(mSpeechServiceConnection);
     }
 
     private VideoEncoderConfiguration.ORIENTATION_MODE orientationFromValue(int value) {
@@ -1110,6 +1241,8 @@ public class AgoraRtcEnginePlugin implements MethodCallHandler, EventChannel.Str
         @Override
         public void onJoinChannelSuccess(String channel, int uid, int elapsed) {
             super.onJoinChannelSuccess(channel, uid, elapsed);
+            isRecognizeEnable = false;
+            bindService();
             HashMap<String, Object> map = new HashMap<>();
             map.put("channel", channel);
             map.put("uid", uid);

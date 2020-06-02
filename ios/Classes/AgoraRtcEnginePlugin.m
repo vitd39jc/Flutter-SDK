@@ -813,6 +813,12 @@
         NSString *args = [self stringFromArguments:params key:@"args"];
         NSString *res = [self.agoraRtcEngine getParameter:paramsStr args:args];
         result(res);
+    } else if ([@"setSpeechApiKey" isEqualToString:method]) {
+        result(nil);
+    } else if ([@"startSpeechRecognize" isEqualToString:method]) {
+        result(nil);
+    } else if ([@"stopSpeechRecognize" isEqualToString:method]) {
+        result(nil);
     } else {
         result(FlutterMethodNotImplemented);
     }

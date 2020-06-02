@@ -410,6 +410,9 @@ class AgoraRtcEngine {
   /// Occurs when received channel media relay event
   static void Function(int event) onReceivedChannelMediaRelayEvent;
 
+  /// Occurs when received speech recognized
+  static void Function(String text) onSpeechRecognized;
+
   // Core Methods
   /// Creates an RtcEngine instance.
   ///
@@ -1238,6 +1241,19 @@ class AgoraRtcEngine {
     return res;
   }
 
+  // Speech Recognize methods
+  static Future<void> setSpeechApiKey(String apiKey) async {
+    await _channel.invokeMethod('setSpeechApiKey', {'apiKey': apiKey});
+  }
+
+  static Future<void> startSpeechRecognize() async {
+    await _channel.invokeMethod('startSpeechRecognize');
+  }
+
+  static Future<void> stopSpeechRecognize() async {
+    await _channel.invokeMethod('stopSpeechRecognize');
+  }
+
   static void _addEventChannelHandler() async {
     _sink = _eventChannel
         .receiveBroadcastStream()
@@ -1556,6 +1572,11 @@ class AgoraRtcEngine {
       case 'onReceivedChannelMediaRelayEvent':
         if (onReceivedChannelMediaRelayEvent != null) {
           onReceivedChannelMediaRelayEvent(map["event"]);
+        }
+        break;
+      case 'onSpeechRecognized':
+        if (onSpeechRecognized != null) {
+          onSpeechRecognized(map["text"]);
         }
         break;
 
