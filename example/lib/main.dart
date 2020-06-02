@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:agora_rtc_engine/agora_rtc_engine.dart';
 import 'package:flutter/material.dart';
@@ -88,7 +89,7 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<void> _initAgoraRtcEngine() async {
-    AgoraRtcEngine.create('YOUR APP ID');
+    AgoraRtcEngine.create('a43aacac70c94ebfa540285dcff1701a');
 
     AgoraRtcEngine.enableVideo();
     AgoraRtcEngine.enableAudio();
@@ -144,6 +145,10 @@ class _MyAppState extends State<MyApp> {
         _infoStrings.add(info);
       });
     };
+
+    AgoraRtcEngine.onExternalAudioDataReceived = (Uint8List audioData) {
+    };
+
   }
 
   void _toggleChannel() {
