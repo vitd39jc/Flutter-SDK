@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -409,6 +410,9 @@ class AgoraRtcEngine {
 
   /// Occurs when received channel media relay event
   static void Function(int event) onReceivedChannelMediaRelayEvent;
+
+  /// Occurs when received speech recognized
+  static void Function(String text) onSpeechRecognized;
 
   // Core Methods
   /// Creates an RtcEngine instance.
@@ -1238,6 +1242,10 @@ class AgoraRtcEngine {
     return res;
   }
 
+  static Future<void> enableExternalAudioSource() async {
+    await _channel.invokeMethod('setExternalAudioSource');
+  }
+
   static void _addEventChannelHandler() async {
     _sink = _eventChannel
         .receiveBroadcastStream()
@@ -1556,6 +1564,11 @@ class AgoraRtcEngine {
       case 'onReceivedChannelMediaRelayEvent':
         if (onReceivedChannelMediaRelayEvent != null) {
           onReceivedChannelMediaRelayEvent(map["event"]);
+        }
+        break;
+      case 'onSpeechRecognized':
+        if (onSpeechRecognized != null) {
+          onSpeechRecognized(map["text"]);
         }
         break;
 
